@@ -1,12 +1,10 @@
 <resources>
-    <string name="app_name">Movesense Data Recorder</string>
-
-    <string name="home_title">Movesense IMU Data Recorder</string>
-    <string name="new_subj">Add \n subject</string>
-    <string name="exp_subj">Export subjects data to csv</string>
-    <string name="get_data">Get data (IMU6 @52Hz)</string>
-
-    <string name="new_exp">record experiment</string>
+    <string name="app_name">BoardLog</string>
+    <string name="home_title">BoardLog Recorder</string>
+    <string name="new_subj">Add \n board</string>
+    <string name="exp_subj">Export boards data to csv</string>
+    <string name="get_data">Start Session</string>
+    <string name="new_exp">record session</string>
     <string name="no_acc">No acceleration data</string>
     <string name="no_gyro">No angular velocity data</string>
     <string name="acc">Acceleration (m/s²)</string>
@@ -17,100 +15,56 @@
     <string name="error">Unexpected error</string>
     <string name="no_info">-</string>
     <string name="no_device">No device</string>
-    <string name="record_exp">record experiment</string>
+    <string name="record_exp">record session</string>
     <string name="recording_exp">recording…</string>
-
-    <string name="add_subj_title">add new subject</string>
-
-    <string name="scan_title">connect sensor</string>
+    <string name="add_subj_title">add new board</string>
+    <string name="scan_title">select sensor</string>
     <string name="scan_movesense_devices">Scan for Movesense devices</string>
     <string name="no_devices_found">No devices found</string>
 
-    <string-array name="movement_values">
-        <item>thruster</item>
-        <item>cluster</item>
-        <item>squat clean</item>
-        <item>power clean</item>
-        <item>muscle clean</item>
-        <item>hang squat clean</item>
-        <item>hang power clean</item>
-        <item>hang muscle clean</item>
-        <item>shoulder press</item>
-        <item>push press</item>
-        <item>push jerk</item>
-        <item>split jerk</item>
-        <item>clean and jerk</item>
-        <item>squat snatch</item>
-        <item>power snatch</item>
-        <item>muscle snatch</item>
-        <item>hang squat snatch</item>
-        <item>hang power snatch</item>
-        <item>hang muscle snatch</item>
-        <item>deadlift</item>
-        <item>overhead squat</item>
-        <item>back squat</item>
-        <item>front squat</item>
-        <item>air squat</item>
-        <item>lunge</item>
-        <item>run</item>
-        <item>row</item>
-        <item>bike erg</item>
-        <item>echo bike</item>
-        <item>ski erg</item>
-        <item>air runner</item>
-        <item>single under</item>
-        <item>double under</item>
-        <item>sit up</item>
-        <item>burpee</item>
-        <item>burpee over barbell</item>
-        <item>burpee facing barbell</item>
-        <item>box jump</item>
-        <item>box jump over</item>
-        <item>burpee box jump over</item>
-        <item>box step up</item>
-        <item>push up</item>
-        <item>hand release push up</item>
-        <item>strict handstand push up</item>
-        <item>kipping handstand push up</item>
-        <item>handstand walk</item>
-        <item>wall walk</item>
-        <item>strict pull up</item>
-        <item>kipping pull up</item>
-        <item>butterfly pull up</item>
-        <item>strict ctb pull up</item>
-        <item>kipping ctb pull up</item>
-        <item>butterfly ctb pull up</item>
-        <item>strict bar muscle up</item>
-        <item>bar muscle up</item>
-        <item>strict ring muscle up</item>
-        <item>ring muscle up</item>
-        <item>toes to bar</item>
-        <item>dumbbell snatch</item>
-        <item>devil press</item>
-        <item>ktb swing</item>
-        <item>ring dip</item>
+    <string-array name="boardsport_values">
+        <item>Surf</item>
+        <item>Sup</item>
+        <item>Skate</item>
+        <item>Snowboard</item>
+        <item>Ski</item>
+        <item>Windsurf</item>
+        <item>Kitesurf</item>
+        <item>Wingfoil</item>
+        <item>Supfoil</item>
+        <item>Pumpfoil</item>
     </string-array>
 
-    <string-array name="location_values">
-        <item>chest</item>
-        <item>wrist</item>
-        <item>ankle</item>
+    <string-array name="mount_face_values">
+        <item>top</item>
+        <item>bottom</item>
+        <item>front</item>
+        <item>back</item>
+        <item>left</item>
+        <item>right</item>
     </string-array>
 
-    <string-array name="time_values">
-        <item>15</item>
-        <item>14</item>
-        <item>13</item>
-        <item>12</item>
-        <item>11</item>
-        <item>10</item>
-        <item>9</item>
-        <item>8</item>
-        <item>7</item>
-        <item>6</item>
-        <item>5</item>
-        <item>4</item>
-        <item>3</item>
-        <item>2</item>
+    <string-array name="session_mode_values">
+        <item>manual start/stop</item>
+        <item>15 sec</item>
+        <item>30 sec</item>
+        <item>60 sec</item>
+        <item>120 sec</item>
+        <item>300 sec</item>
+        <item>600 sec</item>
+    </string-array>
+
+    <string-array name="surface_values">
+        <item>Ocean</item>
+        <item>Sea</item>
+        <item>Lake</item>
+        <item>River</item>
+        <item>Wavepool</item>
+        <item>Skatepark</item>
+        <item>Street</item>
+        <item>Pumptrack</item>
+        <item>Snowpark</item>
+        <item>Piste</item>
+        <item>Backcountry</item>
     </string-array>
 </resources>

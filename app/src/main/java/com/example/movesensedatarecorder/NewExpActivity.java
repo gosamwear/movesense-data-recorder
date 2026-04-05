@@ -68,7 +68,7 @@ public class NewExpActivity extends AppCompatActivity {
         subjSpinner.setAdapter(adapter_subject);
 
         movSpinner = findViewById(R.id.spinner_movement);
-        String[] movementsRes = getResources().getStringArray(R.array.movement_values);
+        String[] movementsRes = getResources().getStringArray(R.array.boardsport_values);
         List<String> movements = Arrays.asList(movementsRes);
         Collections.sort(movements);
         ArrayAdapter adapter_movement = new ArrayAdapter(this, android.R.layout.simple_spinner_item, movements);
@@ -76,12 +76,12 @@ public class NewExpActivity extends AppCompatActivity {
         movSpinner.setAdapter(adapter_movement);
 
         locSpinner = findViewById(R.id.spinner_location);
-        ArrayAdapter<CharSequence> adapter_location = ArrayAdapter.createFromResource(this, R.array.location_values, android.R.layout.simple_spinner_item);
+        ArrayAdapter<CharSequence> adapter_location = ArrayAdapter.createFromResource(this, R.array.mount_face_values, android.R.layout.simple_spinner_item);
         adapter_location.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
         locSpinner.setAdapter(adapter_location);
 
         timeSpinner = findViewById(R.id.spinner_time);
-        ArrayAdapter<CharSequence> adapter_time = ArrayAdapter.createFromResource(this, R.array.time_values, android.R.layout.simple_spinner_item);
+        ArrayAdapter<CharSequence> adapter_time = ArrayAdapter.createFromResource(this, R.array.session_mode_values, android.R.layout.simple_spinner_item);
         adapter_time.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
         timeSpinner.setAdapter(adapter_time);
 

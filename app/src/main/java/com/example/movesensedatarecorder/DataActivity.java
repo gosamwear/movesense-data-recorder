@@ -14,6 +14,9 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.IBinder;
 import android.util.Log;
+import android.view.KeyEvent;
+import android.view.View;
+import android.widget.Button;
 import android.widget.ImageButton;
 import android.widget.TextView;
 
@@ -60,7 +63,10 @@ public class DataActivity extends Activity {
 
     private TextView mAccView, mGyroView, mStatusView, deviceView, expTitleView;
     private ImageButton buttonRecord;
-
+    private Button buttonPause;
+    private Button buttonStop;
+    private Button buttonDiscard;
+    private Button buttonSave;
     private String mDeviceAddress;
     private BleIMUService mBluetoothLeService;
 
@@ -69,11 +75,32 @@ public class DataActivity extends Activity {
     private Drawable stopRecordDrawable;
     private TimerTask timerTask;
     private Timer timer;
+
+    private long startTime = 0;
+    private Handler timerHandler = new Handler();
+
     private boolean record = false;
+    private boolean waterMode = true;
+    private boolean paused = false;
+    private boolean awaitingSave = false;
     private List<ExpPoint> expSet = new ArrayList<>();
     private String content;
     private static final int CREATE_FILE = 1;
+    private Runnable timerRunnable = new Runnable() {
 
+        @Override
+        public void run() {
+            long millis = System.currentTimeMillis() - startTime;
+
+            int seconds = (int) (millis / 1000);
+            int minutes = seconds / 60;
+            seconds = seconds % 60;
+
+            mStatusView.setText(String.format("%02d:%02d", minutes, seconds));
+
+            timerHandler.postDelayed(this, 1000);
+        }
+    };
     @Override
     public void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -92,6 +119,15 @@ public class DataActivity extends Activity {
         mStatusView = findViewById(R.id.status_view);
         buttonRecord = findViewById(R.id.button_recording);
         expTitleView = findViewById(R.id.exp_title_view);
+        buttonPause = findViewById(R.id.button_pause);
+        buttonStop = findViewById(R.id.button_stop);
+        buttonDiscard = findViewById(R.id.button_discard);
+        buttonPause.setVisibility(View.GONE);
+        buttonStop.setVisibility(View.GONE);
+        buttonDiscard.setVisibility(View.GONE);
+        buttonSave = findViewById(R.id.button_save);
+        buttonSave.setVisibility(View.GONE);
+
 
         Resources resources = getResources();
         startRecordDrawable = ResourcesCompat.getDrawable(resources, R.drawable.start_record_icon, null);
@@ -100,30 +136,189 @@ public class DataActivity extends Activity {
         expTitleView.setText(R.string.record_exp);
 
         // NB! bind to the BleIMUService
-        // Use onResume or onStart to register a BroadcastReceiver.
         Intent gattServiceIntent = new Intent(this, BleIMUService.class);
         bindService(gattServiceIntent, mServiceConnection, BIND_AUTO_CREATE);
 
-        //record button listener
+        // record button listener
+// record button listener
         buttonRecord.setOnClickListener(v -> {
-            if (!record) {
-                Intent intentExp = new Intent(getApplicationContext(), NewExpActivity.class);
-                startActivityForResult(intentExp, REQUEST_SUBJECT);
-            } else {
-                timer.cancel();
-                try {
-                    exportData();
-                } catch (IOException | ClassNotFoundException e) {
-                    e.printStackTrace();
-                    MsgUtils.showToast(getApplicationContext(), "unable to save data");
-                }
+            Intent svc = new Intent(getApplicationContext(), BleIMUService.class);
+
+            if (!record && !awaitingSave) {
+                // START
+                svc.setAction(BleIMUService.ACTION_START);
+                startService(svc);
+
+                buttonRecord.setBackground(stopRecordDrawable);
+                expTitleView.setText("RECORDING");
+
+                record = true;
+                paused = false;
+                awaitingSave = false;
+                startTime = System.currentTimeMillis();
+                timerHandler.post(timerRunnable);
+
+                buttonPause.setVisibility(View.VISIBLE);
+                buttonStop.setVisibility(View.VISIBLE);
+                buttonRecord.setVisibility(View.GONE);
+
+            } else if (record) {
+                // STOP
+                svc.setAction(BleIMUService.ACTION_STOP);
+                startService(svc);
+
                 buttonRecord.setBackground(startRecordDrawable);
-                expTitleView.setText(R.string.record_exp);
+                expTitleView.setText("STOPPED");
+
                 record = false;
+                paused = false;
+                awaitingSave = true;
+                timerHandler.removeCallbacks(timerRunnable);
+
+                buttonPause.setVisibility(View.GONE);
+                buttonStop.setVisibility(View.GONE);
+                buttonDiscard.setVisibility(View.VISIBLE);
+                buttonRecord.setVisibility(View.VISIBLE);
+
+            } else if (awaitingSave) {
+                MsgUtils.showToast(getApplicationContext(), "Save session not yet implemented");
             }
         });
 
-        resetTimerAndTimerTask();
+        buttonPause.setOnClickListener(v -> {
+            Intent svc = new Intent(getApplicationContext(), BleIMUService.class);
+            svc.setAction(BleIMUService.ACTION_TOGGLE_PAUSE);
+            startService(svc);
+
+            if (record && !paused) {
+                expTitleView.setText("PAUSED");
+                timerHandler.removeCallbacks(timerRunnable);
+                paused = true;
+
+            } else if (record && paused) {
+                expTitleView.setText("RECORDING");
+                startTime = System.currentTimeMillis();
+                timerHandler.post(timerRunnable);
+                paused = false;
+            }
+        });
+
+        buttonStop.setOnClickListener(v -> {
+            Intent svc = new Intent(getApplicationContext(), BleIMUService.class);
+            svc.setAction(BleIMUService.ACTION_STOP);
+            startService(svc);
+
+            record = false;
+            paused = false;
+            awaitingSave = true;
+            timerHandler.removeCallbacks(timerRunnable);
+
+            expTitleView.setText("STOPPED");
+
+            buttonPause.setVisibility(View.GONE);
+            buttonStop.setVisibility(View.GONE);
+            buttonDiscard.setVisibility(View.VISIBLE);
+            buttonRecord.setVisibility(View.VISIBLE);
+        });
+
+        buttonDiscard.setOnClickListener(v -> {
+            expSet.clear();
+            awaitingSave = false;
+
+            expTitleView.setText("READY");
+            mStatusView.setText("Ready");
+            buttonRecord.setBackground(startRecordDrawable);
+            buttonRecord.setVisibility(View.VISIBLE);
+
+            buttonDiscard.setVisibility(View.GONE);
+            buttonSave = findViewById(R.id.button_save);
+            buttonSave.setVisibility(View.GONE);
+
+
+
+
+        });
+
+    }
+
+    @Override
+    public boolean onKeyDown(int keyCode, KeyEvent event) {
+
+        if (!waterMode) {
+            return super.onKeyDown(keyCode, event);
+        }
+
+        if (keyCode == KeyEvent.KEYCODE_VOLUME_UP) {
+            handleVolumeUp();
+            return true;
+        }
+
+        if (keyCode == KeyEvent.KEYCODE_VOLUME_DOWN) {
+            handleVolumeDown();
+            return true;
+        }
+
+        return super.onKeyDown(keyCode, event);
+    }
+
+    private void handleVolumeUp() {
+        Intent svc = new Intent(getApplicationContext(), BleIMUService.class);
+
+        if (!record && !awaitingSave) {
+            svc.setAction(BleIMUService.ACTION_START);
+            startService(svc);
+
+            buttonRecord.setBackground(stopRecordDrawable);
+            expTitleView.setText("RECORDING");
+            record = true;
+            paused = false;
+            awaitingSave = false;
+            startTime = System.currentTimeMillis();
+            timerHandler.post(timerRunnable);
+            buttonPause.setVisibility(View.VISIBLE);
+            buttonStop.setVisibility(View.VISIBLE);
+            buttonRecord.setVisibility(View.GONE);
+
+        } else if (record) {
+            svc.setAction(BleIMUService.ACTION_STOP);
+            startService(svc);
+
+            buttonRecord.setBackground(startRecordDrawable);
+            expTitleView.setText("STOPPED");
+            mStatusView.setText("Session stopped");
+            record = false;
+            paused = false;
+            awaitingSave = true;
+            timerHandler.removeCallbacks(timerRunnable);
+
+        } else if (awaitingSave) {
+            MsgUtils.showToast(getApplicationContext(), "Save session not yet implemented");
+        }
+    }
+
+    private void handleVolumeDown() {
+        Intent svc = new Intent(getApplicationContext(), BleIMUService.class);
+
+        if (record && !paused) {
+            svc.setAction(BleIMUService.ACTION_TOGGLE_PAUSE);
+            startService(svc);
+
+            expTitleView.setText("PAUSED");
+            timerHandler.removeCallbacks(timerRunnable);
+            paused = true;
+
+        } else if (record && paused) {
+            svc.setAction(BleIMUService.ACTION_TOGGLE_PAUSE);
+            startService(svc);
+
+            expTitleView.setText("RECORDING");
+            startTime = System.currentTimeMillis();
+            timerHandler.post(timerRunnable);
+            paused = false;
+
+        } else if (awaitingSave) {
+            MsgUtils.showToast(getApplicationContext(), "Discard session not yet implemented");
+        }
     }
 
     private void resetTimerAndTimerTask() {
@@ -209,6 +404,7 @@ public class DataActivity extends Activity {
         unbindService(mServiceConnection);
         mBluetoothLeService = null;
         timer.cancel();
+        timerHandler.removeCallbacks(timerRunnable);
     }
 
     //Callback methods to manage the Service lifecycle.
@@ -263,7 +459,9 @@ public class DataActivity extends Activity {
                                     expSet.add(expPoint);
                                 }
                             }
-                            mStatusView.setText(R.string.received);
+                            if (!record) {
+                                mStatusView.setText("Connected");
+                            }
                             String accStr = DataUtils.getAccAsStr(dataPoint);
                             String gyroStr = DataUtils.getGyroAsStr(dataPoint);
                             mAccView.setText(accStr);

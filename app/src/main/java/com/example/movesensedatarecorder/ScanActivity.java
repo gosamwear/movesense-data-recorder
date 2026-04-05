@@ -68,7 +68,7 @@ public class ScanActivity extends AppCompatActivity {
         IMU_SCAN_FILTER = new ArrayList<>();
         IMU_SCAN_FILTER.add(scanFilter);
         SCAN_SETTINGS = new ScanSettings.Builder()
-                .setScanMode(CALLBACK_TYPE_ALL_MATCHES).build();
+                .setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY).build();
     }
 
     private static final long SCAN_PERIOD = 5000; // milli seconds
@@ -80,66 +80,89 @@ public class ScanActivity extends AppCompatActivity {
 
         mHandler = new Handler();
 
-        //ui
         mScanInfoView = findViewById(R.id.scan_info);
         Button startScanButton = findViewById(R.id.button_start_scan);
-        startScanButton.setOnClickListener(v -> {
-            mDeviceList.clear();
-            startScanning(IMU_SCAN_FILTER, SCAN_SETTINGS, SCAN_PERIOD);
-        });
         ListView scanListView = findViewById(R.id.scan_list_view);
+
+        BluetoothAdapter defaultAdapter = BluetoothAdapter.getDefaultAdapter();
+        if (defaultAdapter == null) {
+            MsgUtils.showToast(getApplicationContext(), "Bluetooth not supported on this phone");
+            finish();
+            return;
+        }
+        mBluetoothAdapter = defaultAdapter;
+
         mDeviceList = new ArrayList<>();
         mAdapter = new BTDeviceAdapter(this, mDeviceList);
         scanListView.setAdapter(mAdapter);
         scanListView.setOnItemClickListener((arg0, arg1, position, arg3) -> onDeviceSelected(position));
-    }
 
+        startScanButton.setOnClickListener(v -> {
+            MsgUtils.showToast(getApplicationContext(), "Scanning...");
+            mDeviceList.clear();
+            mAdapter.notifyDataSetChanged();
+            startScanning(IMU_SCAN_FILTER, SCAN_SETTINGS, SCAN_PERIOD);
+        });
+    }
     @Override
     protected void onStart() {
         super.onStart();
-        mScanInfoView.setText(R.string.no_devices_found);
+        if (mScanInfoView != null) {
+            mScanInfoView.setText(R.string.no_devices_found);
+        }
         initBLE();
     }
-
     @Override
     protected void onStop() {
         super.onStop();
         stopScanning();
-        mDeviceList.clear();
-        mAdapter.notifyDataSetChanged();
+        if (mDeviceList != null) {
+            mDeviceList.clear();
+        }
+        if (mAdapter != null) {
+            mAdapter.notifyDataSetChanged();
+        }
     }
 
     private void startScanning(
             List<ScanFilter> scanFilters,
             ScanSettings scanSettings,
             long scanPeriod) {
-        final BluetoothLeScanner scanner =
-                mBluetoothAdapter.getBluetoothLeScanner();
+
+        if (mBluetoothAdapter == null) {
+            MsgUtils.showToast(getApplicationContext(), "Bluetooth adapter not ready");
+            return;
+        }
+
+        final BluetoothLeScanner scanner = mBluetoothAdapter.getBluetoothLeScanner();
+        if (scanner == null) {
+            MsgUtils.showToast(getApplicationContext(), "Bluetooth scanner not available");
+            return;
+        }
+
         if (!mScanning) {
-            // stop scanning after a pre-defined scan period
-            mHandler.postDelayed(new Runnable() {
-                @Override
-                public void run() {
-                    if (mScanning) {
-                        mScanning = false;
-                        scanner.stopScan(mScanCallback);
-                        //showToast(getApplicationContext(), "BLE scan stopped");
-                    }
+            mHandler.postDelayed(() -> {
+                if (mScanning) {
+                    mScanning = false;
+                    scanner.stopScan(mScanCallback);
                 }
             }, scanPeriod);
 
             mScanning = true;
-            //scanner.startScan(scanFilters, scanSettings, mScanCallback);
-            if (ActivityCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_SCAN) != PackageManager.PERMISSION_GRANTED) {
-                MsgUtils.showToast(getApplicationContext(),"Enable bluetooth permission");
-                return;
+
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
+                if (ActivityCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_SCAN)
+                        != PackageManager.PERMISSION_GRANTED) {
+                    MsgUtils.showToast(getApplicationContext(), "Enable bluetooth permission");
+                    return;
+                }
             }
+
             scanner.startScan(mScanCallback);
-            mScanInfoView.setText(R.string.no_devices_found);
-            //showToast(getApplicationContext(),"BLE scan started");
+            Log.i(TAG, "SCAN STARTED");
+            mScanInfoView.setText("Scanning...");
         }
     }
-
     private void stopScanning() {
         if (mScanning) {
             BluetoothLeScanner scanner =

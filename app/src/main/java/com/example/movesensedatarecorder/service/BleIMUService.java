@@ -34,19 +34,321 @@ import static com.example.movesensedatarecorder.service.UUIDs.MOVESENSE_2_0_SERV
 import static com.example.movesensedatarecorder.service.UUIDs.IMU_COMMAND;
 import static com.example.movesensedatarecorder.service.UUIDs.MOVESENSE_RESPONSE;
 import static com.example.movesensedatarecorder.service.UUIDs.REQUEST_ID;
+import android.app.Notification;
+import android.app.NotificationChannel;
+import android.app.NotificationManager;
+import android.os.SystemClock;
 
+import androidx.core.app.NotificationCompat;
+
+import org.json.JSONArray;
+import org.json.JSONObject;
+
+import java.io.BufferedWriter;
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.OutputStreamWriter;
+import java.nio.charset.StandardCharsets;
+import java.text.SimpleDateFormat;
+import java.util.Date;
+import java.util.Locale;
 
 public class BleIMUService extends Service {
 
-    private final static String TAG = BleIMUService.class.getSimpleName();
+        private final static String TAG = BleIMUService.class.getSimpleName();
 
-    private BluetoothManager mBluetoothManager;
-    private BluetoothAdapter mBluetoothAdapter;
-    private String mBluetoothDeviceAddress;
-    private BluetoothGatt mBluetoothGatt;
+        // ---------------- BoardLog V1.1 ----------------
+        public static final String ACTION_START = "boardlog.START";
+        public static final String ACTION_LAP = "boardlog.LAP";
+        public static final String ACTION_TOGGLE_PAUSE = "boardlog.TOGGLE_PAUSE";
+        public static final String ACTION_STOP = "boardlog.STOP";
 
-    private BluetoothGattService movesenseService = null;
+        private static final String NOTIF_CHANNEL_ID = "boardlog_recording";
+        private static final int NOTIF_ID = 1001;
 
+        private enum RecState { IDLE, RECORDING, PAUSED }
+        private RecState recState = RecState.IDLE;
+
+        private long startUtcMs = 0L;
+        private long startMonoNs = 0L;
+        private long pausedStartMonoNs = 0L;
+        private long pausedTotalMonoNs = 0L;
+
+        private int imuSamples = 0;
+        private int lapCount = 0;
+
+        private BufferedWriter ndjsonWriter = null;
+        private File ndjsonFile = null;
+
+        // Session metadata (hardcode for now; later pass as Intent extras from UI)
+        private String sport = "surf";
+        private String env = "water";
+        private String stance = "regular";
+        private String mountFace = "top";
+        private String mountRule = "logo_readable_horizontal_facing_nose";
+        private int rateHz = 52;
+        // ------------------------------------------------
+
+        private BluetoothManager mBluetoothManager;
+        private BluetoothAdapter mBluetoothAdapter;
+        private String mBluetoothDeviceAddress;
+        private BluetoothGatt mBluetoothGatt;
+
+        private BluetoothGattService movesenseService = null;
+    @Override
+    public void onCreate() {
+        super.onCreate();
+        createNotificationChannel();
+    }
+
+    private void createNotificationChannel() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            NotificationChannel channel = new NotificationChannel(
+                    NOTIF_CHANNEL_ID,
+                    "BoardLog Recording",
+                    NotificationManager.IMPORTANCE_LOW
+            );
+            NotificationManager nm = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
+            if (nm != null) nm.createNotificationChannel(channel);
+        }
+    }
+
+    private Notification buildNotification(String status) {
+        return new NotificationCompat.Builder(this, NOTIF_CHANNEL_ID)
+                .setContentTitle("BoardLog")
+                .setContentText(status)
+                .setSmallIcon(android.R.drawable.ic_media_play)
+                .setOngoing(true)
+                .build();
+    }
+
+    private void startAsForeground(String status) {
+        startForeground(NOTIF_ID, buildNotification(status));
+    }
+
+    private void updateForeground(String status) {
+        NotificationManager nm = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
+        if (nm != null) nm.notify(NOTIF_ID, buildNotification(status));
+    }
+    @Override
+    public int onStartCommand(Intent intent, int flags, int startId) {
+        if (intent != null && intent.getAction() != null) {
+            String a = intent.getAction();
+            if (ACTION_START.equals(a)) startRecording();
+            else if (ACTION_LAP.equals(a)) addLap();
+            else if (ACTION_TOGGLE_PAUSE.equals(a)) togglePause();
+            else if (ACTION_STOP.equals(a)) stopRecording();
+        }
+        return START_STICKY;
+    }
+    private long nowMonoNs() {
+        return SystemClock.elapsedRealtimeNanos();
+    }
+
+    private long utcFromMono(long monoNs) {
+        long deltaMs = (monoNs - startMonoNs) / 1_000_000L;
+        return startUtcMs + deltaMs;
+    }
+
+    private void writeLine(JSONObject obj) throws Exception {
+        if (ndjsonWriter == null) return;
+        ndjsonWriter.write(obj.toString());
+        ndjsonWriter.newLine();
+    }
+
+    private void openNdjson() throws Exception {
+        startUtcMs = System.currentTimeMillis();
+        startMonoNs = nowMonoNs();
+
+        String sessionId = new SimpleDateFormat("yyyy-MM-dd'T'HH-mm-ss'Z'", Locale.US)
+                .format(new Date(startUtcMs)) + "__board";
+        String fileName = "BoardLog__" + sessionId + ".ndjson";
+
+        File dir = getExternalFilesDir(null);
+        if (dir == null) {
+            throw new IllegalStateException("External files dir is null");
+        }
+
+        ndjsonFile = new File(dir, fileName);
+
+        ndjsonWriter = new BufferedWriter(
+                new OutputStreamWriter(new FileOutputStream(ndjsonFile, true), StandardCharsets.UTF_8),
+                64 * 1024
+        );
+
+        JSONObject session = new JSONObject();
+        session.put("type", "session");
+        session.put("schema", 1);
+        session.put("app", "BoardLog");
+        session.put("app_ver", "0.1");
+        session.put("session_id", sessionId);
+        session.put("sport", sport);
+        session.put("env", env);
+        session.put("stance", stance);
+
+        JSONObject mount = new JSONObject();
+        mount.put("face", mountFace);
+        mount.put("rule", mountRule);
+        session.put("mount", mount);
+
+        JSONObject sensor = new JSONObject();
+        sensor.put("vendor", "Movesense");
+        sensor.put("mac", mBluetoothDeviceAddress == null ? "" : mBluetoothDeviceAddress);
+        sensor.put("loc", "board");
+        session.put("sensor", sensor);
+
+        JSONObject start = new JSONObject();
+        start.put("utc_ms", startUtcMs);
+        start.put("mono_ns", startMonoNs);
+        session.put("start", start);
+
+        session.put("rate_hz", rateHz);
+
+        writeLine(session);
+
+        JSONObject ev = new JSONObject();
+        ev.put("type", "event");
+        ev.put("name", "recording_started");
+        ev.put("utc_ms", startUtcMs);
+        ev.put("mono_ns", startMonoNs);
+        writeLine(ev);
+
+        ndjsonWriter.flush();
+    }
+
+    private void safeCloseWriter() {
+        try { if (ndjsonWriter != null) ndjsonWriter.flush(); } catch (Exception ignored) {}
+        try { if (ndjsonWriter != null) ndjsonWriter.close(); } catch (Exception ignored) {}
+        ndjsonWriter = null;
+    }
+    private void startRecording() {
+        if (recState != RecState.IDLE) return;
+
+        try {
+            openNdjson();
+            imuSamples = 0;
+            lapCount = 0;
+            pausedTotalMonoNs = 0L;
+            pausedStartMonoNs = 0L;
+
+            startAsForeground("Recording");
+            recState = RecState.RECORDING;
+
+        } catch (Exception e) {
+            Log.e(TAG, "startRecording failed", e);
+            safeCloseWriter();
+            recState = RecState.IDLE;
+            stopForeground(true);
+            stopSelf();
+        }
+    }
+
+    private void addLap() {
+        if (recState != RecState.RECORDING) return;
+        try {
+            long mono = nowMonoNs();
+            long utc = utcFromMono(mono);
+            lapCount++;
+
+            JSONObject lap = new JSONObject();
+            lap.put("type", "lap");
+            lap.put("lap", lapCount);
+            lap.put("utc_ms", utc);
+            lap.put("mono_ns", mono);
+            writeLine(lap);
+            ndjsonWriter.flush();
+        } catch (Exception e) {
+            Log.e(TAG, "addLap failed", e);
+        }
+    }
+
+    private void togglePause() {
+        if (recState == RecState.IDLE) return;
+
+        try {
+            long mono = nowMonoNs();
+            long utc = utcFromMono(mono);
+
+            if (recState == RecState.RECORDING) {
+                recState = RecState.PAUSED;
+                pausedStartMonoNs = mono;
+
+                JSONObject ev = new JSONObject();
+                ev.put("type", "event");
+                ev.put("name", "recording_paused");
+                ev.put("utc_ms", utc);
+                ev.put("mono_ns", mono);
+                ev.put("reason", "user");
+                writeLine(ev);
+                ndjsonWriter.flush();
+                updateForeground("Paused");
+
+            } else if (recState == RecState.PAUSED) {
+                recState = RecState.RECORDING;
+                if (pausedStartMonoNs != 0L) {
+                    pausedTotalMonoNs += (mono - pausedStartMonoNs);
+                    pausedStartMonoNs = 0L;
+                }
+
+                JSONObject ev = new JSONObject();
+                ev.put("type", "event");
+                ev.put("name", "recording_resumed");
+                ev.put("utc_ms", utc);
+                ev.put("mono_ns", mono);
+                ev.put("reason", "user");
+                writeLine(ev);
+                ndjsonWriter.flush();
+                updateForeground("Recording");
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "togglePause failed", e);
+        }
+    }
+
+    private void stopRecording() {
+        if (recState == RecState.IDLE) {
+            stopSelf();
+            return;
+        }
+
+        try {
+            long mono = nowMonoNs();
+            long utc = utcFromMono(mono);
+
+            if (recState == RecState.PAUSED && pausedStartMonoNs != 0L) {
+                pausedTotalMonoNs += (mono - pausedStartMonoNs);
+                pausedStartMonoNs = 0L;
+            }
+
+            JSONObject ev = new JSONObject();
+            ev.put("type", "event");
+            ev.put("name", "recording_stopped");
+            ev.put("utc_ms", utc);
+            ev.put("mono_ns", mono);
+            writeLine(ev);
+
+            double durationS = (mono - startMonoNs) / 1e9;
+            double pausedS = pausedTotalMonoNs / 1e9;
+
+            JSONObject sum = new JSONObject();
+            sum.put("type", "summary");
+            sum.put("imu_samples", imuSamples);
+            sum.put("laps", lapCount);
+            sum.put("duration_s", durationS);
+            sum.put("paused_s", pausedS);
+            writeLine(sum);
+
+            ndjsonWriter.flush();
+
+        } catch (Exception e) {
+            Log.e(TAG, "stopRecording failed", e);
+        } finally {
+            safeCloseWriter();
+            recState = RecState.IDLE;
+            stopForeground(true);
+            stopSelf();
+        }
+    }
     public boolean connect(final String address) {
         if (mBluetoothAdapter == null || address == null) {
             Log.w(TAG, "BluetoothAdapter not initialized or unspecified address.");
@@ -197,6 +499,7 @@ public class BleIMUService extends Service {
                 }
         }
 
+
         @Override
         public void onCharacteristicChanged(BluetoothGatt gatt,
                                             BluetoothGattCharacteristic characteristic) {
@@ -207,11 +510,41 @@ public class BleIMUService extends Service {
                     ArrayList<DataPoint> dataPointList = DataUtils.IMU6DataConverter(data);
 
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-                        if (Objects.isNull(dataPointList)){
+                        if (Objects.isNull(dataPointList)) {
                             return;
                         }
                     }
-                    //broadcast data update
+
+                    // BoardLog: write if recording (and not paused)
+                    if (recState == RecState.RECORDING && ndjsonWriter != null) {
+                        try {
+                            long mono = nowMonoNs(); // packet arrival time
+                            for (DataPoint dp : dataPointList) {
+                                JSONObject obj = new JSONObject();
+                                obj.put("type", "imu");
+                                obj.put("mono_ns", mono);
+                                obj.put("t", dp.getTime()); // keep sensor time for later refinement
+
+                                JSONArray acc = new JSONArray();
+                                acc.put(dp.getAccX()).put(dp.getAccY()).put(dp.getAccZ());
+                                obj.put("acc", acc);
+
+                                JSONArray gyro = new JSONArray();
+                                gyro.put(dp.getGyroX()).put(dp.getGyroY()).put(dp.getGyroZ());
+                                obj.put("gyro", gyro);
+
+                                writeLine(obj);
+                                imuSamples++;
+                            }
+
+                            if (imuSamples % 52 == 0) ndjsonWriter.flush();
+
+                        } catch (Exception e) {
+                            Log.e(TAG, "NDJSON write failed", e);
+                        }
+                    }
+
+                    // broadcast data update
                     broadcastMovesenseUpdate(dataPointList);
                 }
             }
@@ -250,12 +583,15 @@ public class BleIMUService extends Service {
 
     @Override
     public boolean onUnbind(Intent intent) {
-        //close() is invoked when the UI is disconnected from the Service.
-        close();
-        return super.onUnbind(intent);
-    }
-
-
+            // Do not close BLE just because UI unbound; service may still be recording.
+            return super.onUnbind(intent);
+        }
+        @Override
+        public void onDestroy() {
+            super.onDestroy();
+            safeCloseWriter();
+            close();
+        }
     //logging and debugging
     private void logServices(BluetoothGatt gatt) {
         List<BluetoothGattService> services = gatt.getServices();
@@ -275,4 +611,5 @@ public class BleIMUService extends Service {
         }
     }
 }
+
 

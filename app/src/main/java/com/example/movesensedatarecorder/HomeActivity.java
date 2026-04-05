@@ -40,7 +40,7 @@ public class HomeActivity extends AppCompatActivity {
 
         buttonSubj = findViewById(R.id.button_subj);
         buttonSubj.setOnClickListener(v -> {
-            startActivity(new Intent(getApplicationContext(), AddSubjActivity.class));
+            MsgUtils.showToast(getApplicationContext(), "Boards screen not enabled yet");
         });
 
         buttonExp = findViewById(R.id.button_exp);
@@ -50,13 +50,8 @@ public class HomeActivity extends AppCompatActivity {
 
         buttonExport = findViewById(R.id.button_export);
         buttonExport.setOnClickListener(v -> {
-            try {
-                exportData();
-            } catch (IOException | ClassNotFoundException e) {
-                e.printStackTrace();
-            }
+            MsgUtils.showToast(getApplicationContext(), "Export not enabled yet in BoardLog");
         });
-
     }
 
     private void saveToCSV() {
